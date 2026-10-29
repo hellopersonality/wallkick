@@ -138,7 +138,7 @@
 (() => {
 'use strict';
 // Stamped by `node bump-version.js` (which also writes version.json). Do not edit by hand.
-const VERSION = '20261029013107';
+const VERSION = '20261029013516';
 
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -530,7 +530,7 @@ function step(dt){
   }
 
   P.vy = Math.min(P.vy + G * dt, FALL_MAX);
-  if (P.wall && P.vy > 0 && P.stun <= 0) P.vy = Math.min(P.vy, P.wallSlick ? SLIDE_ICE : SLIDE);
+  if (P.wall && P.vy > 0 && P.stun <= 0) P.vy = P.hold ? 0 : Math.min(P.vy, P.wallSlick ? SLIDE_ICE : SLIDE); // charging grips the wall
 
   // X move
   P.x += P.vx * dt;
