@@ -113,7 +113,7 @@
       <div class="how">
         <div><b>&#9664; Left</b>left half jumps left</div>
         <div><b>Right &#9654;</b>right half jumps right</div>
-        <div class="wide"><b>Hold, then let go</b>Tap for a hop. Hold longer for a bigger jump. On a wall, tapping the wall's side hops straight up it once. On a wall, either side kicks off. Hold a side in the air to steer.</div>
+        <div class="wide"><b>Hold, then let go</b>Tap for a hop. Hold longer for a bigger jump. On a wall, tapping the wall's side hops straight up it. On a wall, either side kicks off. Hold a side in the air to steer.</div>
       </div>
       <div class="stat">Best <b id="tBest">0</b> m <span class="dot"></span> <b id="tCoins">0</b></div>
     </div>
@@ -157,7 +157,7 @@
 (() => {
 'use strict';
 // Stamped by `node bump-version.js` (which also writes version.json). Do not edit by hand.
-const VERSION = '20261029033953';
+const VERSION = '20261029034148';
 
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -619,8 +619,8 @@ function step(dt){
     } else if (P.wall || P.coyW > 0) {
       const s = P.wall || P.lastWall;
       const c = P.bufC;
-      if (P.bufSide === s && !P.upHopUsed) {
-        // tapping toward the wall you're hanging on hops straight up it (once per wall contact) to line up a kick across
+      if (P.bufSide === s) {
+        // tapping toward the wall you're hanging on hops straight up it; repeatable until something blocks the way
         P.vx = 0; P.vy = -lerp(KICK_MIN, KICK_MAX, c) * .8; P.kickLock = .12; P.buf = 0; P.coyW = 0; P.upHopUsed = true; P.sq = -.25;
         SFX.jump(); burst(s < 0 ? P.x : P.x + PW, P.y + PH, 6, 'hi', 60, 10, 200, 2);
       } else {
