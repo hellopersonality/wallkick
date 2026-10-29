@@ -138,7 +138,7 @@
 (() => {
 'use strict';
 // Stamped by `node bump-version.js` (which also writes version.json). Do not edit by hand.
-const VERSION = '20261029013516';
+const VERSION = '20261029024152';
 
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -164,7 +164,10 @@ const CHARGE_T = .42;
 const JUMP_MIN = 560, JUMP_MAX = 960, GROUND_VX_MIN = 150, GROUND_VX_MAX = 230;
 const KICK_MIN = 560, KICK_MAX = 900, KICK_VX_MIN = 270, KICK_VX_MAX = 360;
 const AIR_ACC = 1500, AIR_MAX = 270;
-const SLIDE = 150, SLIDE_ICE = 430, SPRING_V = 1400, FALL_MAX = 1150;
+const SLIDE = 150, SLIDE_ICE = 430, SPRING_V = 1400, FALL_MAX = 1250;
+const FALL_MULT = 1.6;            // heavier gravity on the way down
+const APEX_V = 150, APEX_MULT = .45; // lighter gravity near the top while a side is held
+const REL_BUF = .1;               // a release this long before contact still fires
 const PW = 18, PH = 26;
 
 /* ---------- biomes ---------- */
@@ -439,7 +442,7 @@ function release(id){
   const side = P.hold.side; P.hold = null;
   if (state !== 'play' || P.dead) return;
   const contact = P.grounded || P.wall || P.coyG > 0 || P.coyW > 0;
-  if (!contact) return;
+  if (!contact) { P.relBuf = REL_BUF; P.relSide = side; return; }
   const t = (P.grounded || P.wall) ? P.chargeT : P.lastCharge;
   P.buf = .1; P.bufSide = side; P.bufC = clamp(t / CHARGE_T, 0, 1);
   P.chargeT = 0; P.lastCharge = 0; P.full = false;
@@ -493,7 +496,9 @@ function step(dt){
   }
   if (P.dead) { P.vy = Math.min(P.vy + G * dt, FALL_MAX); P.y += P.vy * dt; P.x += P.vx * dt; return; }
 
-  P.buf -= dt; P.coyG -= dt; P.coyW -= dt; P.stun -= dt; P.kickLock -= dt;
+  P.buf -= dt; P.coyG -= dt; P.coyW -= dt; P.stun -= dt; P.kickLock -= dt; P.relBuf = (P.relBuf || 0) - dt;
+  // buffered release: let go just before touching down / grabbing a wall -> tap-strength jump on contact
+  if (P.relBuf > 0 && !P.hold && (P.grounded || P.wall)) { P.buf = .1; P.bufSide = P.relSide; P.bufC = 0; P.relBuf = 0; }
   if (P.flip > 0) P.flip = Math.max(0, P.flip - dt / .32);
   P.sq *= Math.pow(.0005, dt);
   if (P.ground && P.ground.dx) P.x += P.ground.dx;
@@ -529,7 +534,13 @@ function step(dt){
     }
   }
 
-  P.vy = Math.min(P.vy + G * dt, FALL_MAX);
+  let g = G;
+  if (!P.grounded && P.stun <= 0) {
+    const holding = ptrs.size > 0 || keys.l || keys.r || !!P.hold;
+    if (holding && Math.abs(P.vy) < APEX_V) g *= APEX_MULT;
+    else if (P.vy > 0) g *= FALL_MULT;
+  }
+  P.vy = Math.min(P.vy + g * dt, FALL_MAX);
   if (P.wall && P.vy > 0 && P.stun <= 0) P.vy = P.hold ? 0 : Math.min(P.vy, P.wallSlick ? SLIDE_ICE : SLIDE); // charging grips the wall
 
   // X move
