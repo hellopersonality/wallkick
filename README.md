@@ -3,7 +3,7 @@
 Vertical arcade climber for phones. Kick between walls, hop floating platforms, and stay ahead of the rising edge of the screen. Height is score.
 
 - Single file, no dependencies: `index.html`.
-- Controls: tap the left or right half of the screen to jump that way. On a wall, any tap kicks off. Hold a side to steer in the air. Keyboard: arrows / A-D, Space, P to pause.
+- Controls: hold the left or right half of the screen and let go to jump that way. A tap is a small hop; holding longer (up to ~0.4 s) charges a bigger jump, shown by the meter over the climber. On a wall, either side kicks off. Hold a side in the air to steer. Keyboard: arrows / A-D / Space (hold and release), P to pause.
 - Endless procedural tower: wall shafts, platform fields, and one-wall hybrids. Biomes change with height: Downtown, Canopy (150 m), Red Canyon (350 m), Glacier (600 m), Cloud Kingdom (900 m), Aurora (1300 m), Low Orbit (1800 m), The Beyond (2600 m).
 - Platform types: normal, moving, crumbling, spring, ice. Red spike strips on walls knock you off.
 

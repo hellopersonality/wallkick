@@ -97,9 +97,9 @@
     <h1 class="logo">WALL<span>KICK</span></h1>
     <p class="tag">Kick between walls, hop the platforms, outrun the rising edge. Height is score.</p>
     <div class="how">
-      <div><b>&#9664; TAP</b>left half jumps left</div>
-      <div><b>TAP &#9654;</b>right half jumps right</div>
-      <div class="wide"><b>ON A WALL</b>any tap kicks off. Hold a side to steer in the air.</div>
+      <div><b>&#9664; LEFT</b>left half jumps left</div>
+      <div><b>RIGHT &#9654;</b>right half jumps right</div>
+      <div class="wide"><b>HOLD, THEN LET GO</b>Tap for a hop. Hold longer for a bigger jump. On a wall, either side kicks off. Hold a side in the air to steer.</div>
     </div>
     <div class="stat">Best <b id="tBest">0</b> m</div>
     <button class="big pulse" id="startBtn">CLIMB</button>
@@ -138,7 +138,7 @@
 (() => {
 'use strict';
 // Stamped by `node bump-version.js` (which also writes version.json). Do not edit by hand.
-const VERSION = '20261029012215';
+const VERSION = '20261029013107';
 
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -159,8 +159,10 @@ const rgba = (h, a) => { const c = hexRgb(h); return 'rgba(' + c[0] + ',' + c[1]
 const W = 360;            // world width in units
 const PXM = 10;           // units per metre
 const G = 2100;
-const JUMP_V = 880, GROUND_VX = 210;
-const KICK_V = 830, KICK_VX = 340;
+// Jumps charge while held on ground / wall and fire on release. c = 0 (tap) .. 1 (full hold).
+const CHARGE_T = .42;
+const JUMP_MIN = 560, JUMP_MAX = 960, GROUND_VX_MIN = 150, GROUND_VX_MAX = 230;
+const KICK_MIN = 560, KICK_MAX = 900, KICK_VX_MIN = 270, KICK_VX_MAX = 360;
 const AIR_ACC = 1500, AIR_MAX = 270;
 const SLIDE = 150, SLIDE_ICE = 430, SPRING_V = 1400, FALL_MAX = 1150;
 const PW = 18, PH = 26;
@@ -326,7 +328,7 @@ function reset(){
   gen = { y: 0, x: W / 2, w: 120, mode: 'start', L: 0, R: W, n: 0 };
   genShaft(BIOMES[0], 0, true);
   P = { x: W / 2 - PW / 2, y: -PH, vx: 0, vy: 0, w: PW, h: PH, grounded: true, ground: walls[0], wall: 0, lastWall: 0,
-        coyG: 0, coyW: 0, buf: 0, bufSide: 0, stun: 0, kickLock: 0, face: 1, flip: 0, sq: 0, dead: false };
+        coyG: 0, coyW: 0, buf: 0, bufSide: 0, bufC: 0, hold: null, chargeT: 0, lastCharge: 0, full: false, stun: 0, kickLock: 0, face: 1, flip: 0, sq: 0, dead: false };
   scarf = []; for (let i = 0; i < 7; i++) scarf.push({ x: P.x + PW / 2, y: P.y + 10 + i * 3 });
   camY = -viewH * .86; scrollV = 0; maxH = 0; combo = 0; curB = 0; lastBiome = 0;
   runBest = S.best; bestCelebrated = false;
@@ -427,25 +429,42 @@ function genHybrid(B, bi, d){
 /* ---------- input ---------- */
 const ptrs = new Map(); const keys = { l: 0, r: 0 };
 function held(){ let h = keys.r - keys.l; for (const v of ptrs.values()) h += v; return Math.sign(h); }
-function press(side){
+// press starts a hold (charging begins once grounded or on a wall); release fires the jump.
+function press(side, id){
   if (state !== 'play' || !P || P.dead) return;
-  P.buf = .13; P.bufSide = side; if (side) P.face = side;
+  P.hold = { side, id }; P.chargeT = 0; P.full = false; if (side) P.face = side;
+}
+function release(id){
+  if (!P || !P.hold || P.hold.id !== id) return;
+  const side = P.hold.side; P.hold = null;
+  if (state !== 'play' || P.dead) return;
+  const contact = P.grounded || P.wall || P.coyG > 0 || P.coyW > 0;
+  if (!contact) return;
+  const t = (P.grounded || P.wall) ? P.chargeT : P.lastCharge;
+  P.buf = .1; P.bufSide = side; P.bufC = clamp(t / CHARGE_T, 0, 1);
+  P.chargeT = 0; P.lastCharge = 0; P.full = false;
 }
 function sideOf(clientX){ const mid = colX + W * scale / 2; return clientX < mid ? -1 : 1; }
 addEventListener('pointerdown', e => {
   audio();
   if (state !== 'play' || e.target.closest('button')) return;
-  const s = sideOf(e.clientX); ptrs.set(e.pointerId, s); press(s); e.preventDefault();
+  const s = sideOf(e.clientX); ptrs.set(e.pointerId, s); press(s, e.pointerId); e.preventDefault();
 }, { passive: false });
-const up = e => ptrs.delete(e.pointerId);
+const up = e => { ptrs.delete(e.pointerId); release(e.pointerId); };
 addEventListener('pointerup', up); addEventListener('pointercancel', up);
+addEventListener('keyup', e => {
+  const k = e.code;
+  if (k === 'ArrowLeft' || k === 'KeyA') release('kl');
+  else if (k === 'ArrowRight' || k === 'KeyD') release('kr');
+  else if (k === 'Space' || k === 'ArrowUp' || k === 'KeyW') release('ks');
+});
 addEventListener('keydown', e => {
   if (e.repeat) return;
   const k = e.code;
   if (state === 'play') {
-    if (k === 'ArrowLeft' || k === 'KeyA') { keys.l = 1; press(-1); }
-    else if (k === 'ArrowRight' || k === 'KeyD') { keys.r = 1; press(1); }
-    else if (k === 'Space' || k === 'ArrowUp' || k === 'KeyW') { press(0); e.preventDefault(); }
+    if (k === 'ArrowLeft' || k === 'KeyA') { keys.l = 1; press(-1, 'kl'); }
+    else if (k === 'ArrowRight' || k === 'KeyD') { keys.r = 1; press(1, 'kr'); }
+    else if (k === 'Space' || k === 'ArrowUp' || k === 'KeyW') { press(0, 'ks'); e.preventDefault(); }
     else if (k === 'Escape' || k === 'KeyP') pause();
   } else if (k === 'Space' || k === 'Enter') {
     if (state === 'title') start(); else if (state === 'over' && performance.now() - overAt > 700) start(); else if (state === 'pause') resume();
@@ -479,7 +498,13 @@ function step(dt){
   P.sq *= Math.pow(.0005, dt);
   if (P.ground && P.ground.dx) P.x += P.ground.dx;
 
-  const h = P.stun > 0 ? 0 : held();
+  // charge while holding with contact; remember it briefly for coyote releases
+  if (P.hold && (P.grounded || P.wall) && P.stun <= 0) {
+    P.chargeT += dt; P.lastCharge = P.chargeT;
+    if (!P.full && P.chargeT >= CHARGE_T) { P.full = true; tone(1200, 1500, .06, 'square', .05); }
+  } else if (P.hold) { if (P.coyG <= 0 && P.coyW <= 0) P.lastCharge = 0; P.chargeT = 0; P.full = false; }
+
+  const h = P.stun > 0 || (P.hold && (P.grounded || P.wall)) ? 0 : held();
   if (!P.grounded) {
     if (h && P.kickLock <= 0) {
       if (Math.sign(P.vx) !== h || Math.abs(P.vx) < AIR_MAX) { P.vx += h * AIR_ACC * dt; if (Math.sign(P.vx) === h && Math.abs(P.vx) > AIR_MAX) P.vx = h * AIR_MAX; }
@@ -491,11 +516,13 @@ function step(dt){
   // jump / kick
   if (P.buf > 0 && P.stun <= 0) {
     if (P.grounded || P.coyG > 0) {
-      P.vy = -JUMP_V; P.vx = P.bufSide * GROUND_VX; P.grounded = false; P.ground = null; P.buf = 0; P.coyG = 0; P.sq = -.35;
+      const c = P.bufC;
+      P.vy = -lerp(JUMP_MIN, JUMP_MAX, c); P.vx = P.bufSide * lerp(GROUND_VX_MIN, GROUND_VX_MAX, c); P.grounded = false; P.ground = null; P.buf = 0; P.coyG = 0; P.sq = -.2 - c * .25;
       combo = 0; SFX.jump(); burst(P.x + PW / 2, P.y + PH, 8, '#ffffff', 90, 20, 300, 2.5);
     } else if (P.wall || P.coyW > 0) {
       const s = P.wall || P.lastWall;
-      P.vx = -s * KICK_VX; P.vy = -KICK_V; P.kickLock = .12; P.flip = S.reduce ? 0 : 1; P.face = -s; P.buf = 0; P.coyW = 0; P.wall = 0; P.sq = -.3;
+      const c = P.bufC;
+      P.vx = -s * lerp(KICK_VX_MIN, KICK_VX_MAX, c); P.vy = -lerp(KICK_MIN, KICK_MAX, c); P.kickLock = .12; P.flip = S.reduce ? 0 : 1; P.face = -s; P.buf = 0; P.coyW = 0; P.wall = 0; P.sq = -.3;
       combo++; SFX.kick(combo); buzz(8);
       burst(s < 0 ? P.x : P.x + PW, P.y + PH * .6, 10, BIOMES[curB].accent, 170, 0, 200, 3);
       if (combo >= 5 && combo % 5 === 0) popText('x' + combo + ' KICKS', P.x + PW / 2, P.y - 10);
@@ -796,7 +823,9 @@ function drawPlayer(){
   ctx.save(); ctx.translate(cx, by - PH / 2);
   if (P.flip > 0) ctx.rotate(P.face * (1 - P.flip) * Math.PI * 2);
   if (P.dead) ctx.rotate(time * 8);
-  const sq = clamp(P.sq, -.45, .45); ctx.scale(1 + sq * .5, 1 - sq * .6);
+  const chg = P.hold && (P.grounded || P.wall) ? clamp(P.chargeT / CHARGE_T, 0, 1) : 0;
+  const sq = clamp(P.sq + chg * .3, -.45, .45); ctx.scale(1 + sq * .5, 1 - sq * .6);
+  if (chg) ctx.translate(0, chg * 3);
   ctx.scale(P.face, 1);
   const onWall = P.wall !== 0, air = !P.grounded && !onWall;
   // legs
@@ -815,6 +844,13 @@ function drawPlayer(){
   ctx.fillStyle = '#1b1530'; rrect(-1, -12, 8.5, 5, 2.5); ctx.fill();
   ctx.fillStyle = '#5ff2d0'; ctx.fillRect(4, -11, 2, 2);
   ctx.restore();
+  // charge meter above head
+  if (chg > 0) {
+    const mx = cx - 14, my = P.y - 12, full = chg >= 1;
+    ctx.fillStyle = 'rgba(7,6,13,.75)'; rrect(mx - 2, my - 2, 32, 8, 4); ctx.fill();
+    ctx.fillStyle = full ? (Math.sin(time * 30) > 0 ? '#ffffff' : '#ffd23f') : mix('#5ff2d0', '#ff4d6d', chg);
+    rrect(mx, my, Math.max(4, 28 * chg), 4, 2); ctx.fill();
+  }
 }
 
 function render(){
@@ -956,7 +992,7 @@ addEventListener('online', checkUpdate);
 
 $('ver').textContent = 'BUILD ' + VERSION.slice(4, 8) + '.' + VERSION.slice(8, 12);
 window.__wk = { get P(){ return P; }, get walls(){ return walls; }, get plats(){ return plats; }, get spikes(){ return spikes; }, get state(){ return state; },
-  get maxH(){ return maxH; }, get camY(){ return camY; }, get viewH(){ return viewH; }, start, press, reset, BIOMES,
+  get maxH(){ return maxH; }, get camY(){ return camY; }, get viewH(){ return viewH; }, start, press, release, reset, BIOMES,
   warp(m){ P.y = -m * PXM - 200; P.vy = 0; camY = P.y - viewH * .5; maxH = m; ensureGen(); },
   setHeld(v){ ptrs.clear(); if (v) ptrs.set(-1, v); } };
 
