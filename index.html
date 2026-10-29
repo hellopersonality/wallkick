@@ -36,6 +36,11 @@
   .meter .h i{font-style:normal;font-size:18px;margin-left:3px;color:var(--sun)}
   .meter .s{font:700 11px var(--ui);letter-spacing:.18em;text-transform:uppercase;padding:3px 8px;border-radius:6px;background:rgba(7,6,13,.55);color:#cfc9ea}
   .meter .s b{color:var(--sun);font-weight:700}
+  .meter .cn{display:flex;align-items:center;gap:6px}
+  .meter .cn b{color:var(--paper);font-variant-numeric:tabular-nums}
+  .dot{width:11px;height:11px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff6c2 0 20%,var(--sun) 21% 70%,#c98a00 71%);display:inline-block;flex:none}
+  .meter .cn.bump{animation:bump .25s ease-out}
+  @keyframes bump{40%{transform:scale(1.18)}}
   #pauseBtn{pointer-events:auto;width:44px;height:44px;border-radius:12px;border:2px solid rgba(255,255,255,.18);background:rgba(7,6,13,.55);display:grid;place-items:center}
   #pauseBtn svg{width:18px;height:18px;fill:var(--paper)}
 
@@ -88,7 +93,7 @@
 <canvas id="c"></canvas>
 <div class="col" id="col">
   <div id="hud" class="off">
-    <div class="meter"><div class="h"><span id="hm">0</span><i>m</i></div><div class="s">Best <b id="hb">0</b></div></div>
+    <div class="meter"><div class="h"><span id="hm">0</span><i>m</i></div><div class="s">Best <b id="hb">0</b></div><div class="s cn" id="hcWrap"><span class="dot"></span><b id="hc">0</b></div></div>
     <button id="pauseBtn" aria-label="Pause"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/></svg></button>
   </div>
   <div id="banner"><small id="banSm"></small><b id="banBig"></b></div>
@@ -101,7 +106,7 @@
       <div><b>RIGHT &#9654;</b>right half jumps right</div>
       <div class="wide"><b>HOLD, THEN LET GO</b>Tap for a hop. Hold longer for a bigger jump. On a wall, either side kicks off. Hold a side in the air to steer.</div>
     </div>
-    <div class="stat">Best <b id="tBest">0</b> m</div>
+    <div class="stat">Best <b id="tBest">0</b> m &nbsp;&middot;&nbsp; <span class="dot"></span> <b id="tCoins">0</b></div>
     <button class="big pulse" id="startBtn">CLIMB</button>
     <div class="row">
       <button class="tog" id="tSound" aria-pressed="true">Sound</button>
@@ -115,6 +120,7 @@
     <p class="final"><span id="oH">0</span><i>m</i></p>
     <div class="badge" id="oNew" hidden>NEW BEST</div>
     <div class="stat">Best <b id="oBest">0</b> m</div>
+    <div class="stat"><span class="dot"></span> +<b id="oCoins">0</b> &nbsp;&middot;&nbsp; Total <b id="oTotal">0</b></div>
     <button class="big" id="againBtn">AGAIN</button>
     <button class="ghost" id="menuBtn">Title</button>
   </div>
@@ -138,7 +144,7 @@
 (() => {
 'use strict';
 // Stamped by `node bump-version.js` (which also writes version.json). Do not edit by hand.
-const VERSION = '20261029024152';
+const VERSION = '20261029030304';
 
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -217,7 +223,7 @@ const biomeIdx = m => { let i = 0; while (i + 1 < BIOMES.length && m >= BIOMES[i
 
 /* ---------- settings ---------- */
 const KEY = 'wallkick.v1';
-const S = { best: 0, sound: true, reduce: false, runs: 0 };
+const S = { best: 0, sound: true, reduce: false, runs: 0, coins: 0 };
 try { S.reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
@@ -256,6 +262,8 @@ const SFX = {
   biome(){ [523, 659, 784, 1047].forEach((f, i) => tone(f, f, .2, 'triangle', .1, i * .09)); },
   best(){ [784, 988, 1175, 1568].forEach((f, i) => tone(f, f * 1.01, .15, 'square', .05, i * .07)); },
   die(){ tone(520, 55, .8, 'sawtooth', .1); },
+  coin(n){ const f = 988 * Math.pow(1.0595, Math.min(n, 12)); tone(f, f, .05, 'square', .045); tone(f * 1.335, f * 1.335, .09, 'square', .045, .05); },
+  gem(){ [1047, 1319, 1568, 2093].forEach((f, i) => tone(f, f, .1, 'triangle', .08, i * .045)); },
   click(){ tone(900, 700, .04, 'square', .04); },
 };
 const buzz = p => { if (!S.reduce) try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
@@ -320,13 +328,15 @@ function makePattern(B){
 }
 
 /* ---------- world ---------- */
+let coins = [], runCoins = 0, coinStreak = 0, coinStreakT = 0;
+function addCoin(x, y, v = 1){ coins.push({ x, y, v, ph: Math.random() * 6.28 }); }
 let walls, plats, spikes, gen, P, camY, scrollV, maxH, combo, parts, ghosts, amb, scarf, time, shake, hurtFlash;
 let state = 'title', runBest = 0, bestCelebrated = false, lastBiome = 0, overAt = 0, curB = 0;
 let viewH = 700, scale = 1, colX = 0, dpr = 1;
 
 function reset(){
   rnd = mulberry32((Math.random() * 1e9) | 0);
-  walls = []; plats = []; spikes = []; parts = []; ghosts = []; time = 0; shake = 0; hurtFlash = 0;
+  walls = []; plats = []; spikes = []; parts = []; coins = []; runCoins = 0; coinStreak = 0; coinStreakT = 0; ghosts = []; time = 0; shake = 0; hurtFlash = 0;
   walls.push({ x: -100, y: 0, w: W + 200, h: 4000, kind: 'ground', b: 0 });
   gen = { y: 0, x: W / 2, w: 120, mode: 'start', L: 0, R: W, n: 0 };
   genShaft(BIOMES[0], 0, true);
@@ -368,9 +378,15 @@ function genShaft(B, d, first, bi = 0){
     const L = cx - gw / 2, Rr = cx + gw / 2, y0 = sy - sh;
     walls.push({ x: -100, y: y0, w: L + 100, h: sh, side: -1, b: bi, slick: !!B.slick, grab: true });
     walls.push({ x: Rr, y: y0, w: W - Rr + 100, h: sh, side: 1, b: bi, slick: !!B.slick, grab: true });
+    // coins: a centre column or a wall-hugging ladder
+    if (!(first && firstSec) && rnd() < .5) {
+      if (rnd() < .5) { const n = Math.floor(R(3, 6)); for (let k = 0; k < n; k++) addCoin(cx, sy - 50 - k * 34); }
+      else { const n = Math.floor(R(2, 4)); for (let k = 0; k < n; k++) addCoin(k % 2 ? Rr - 16 : L + 16, sy - 50 - k * 60); }
+    }
     if (!firstSec && sh > 170 && rnd() < B.spike * (.6 + d)) {
       const s = rnd() < .5 ? -1 : 1, sl = R(46, 80), syy = sy - R(40, sh - sl - 40);
       spikes.push({ x: s < 0 ? L - 2 : Rr - 10, y: syy - sl, w: 12, h: sl, side: s });
+      if (rnd() < .45) addCoin(s < 0 ? L + 24 : Rr - 24, syy - sl / 2, 5); // gem by the spikes
     } else if (!firstSec && rnd() < .16) {
       const s = rnd() < .5 ? -1 : 1, ly = sy - R(50, sh - 40);
       walls.push({ x: s < 0 ? L - 1 : Rr - 27, y: ly, w: 28, h: 10, ledge: true, b: bi, grab: false });
@@ -406,9 +422,17 @@ function genPlats(B, bi, d, lo, hi, len, startY){
     if (type === 'spring') w = Math.min(w, 64);
     const p = addPlat(nx - w / 2, ny, w, type, bi);
     if (type === 'move') { p.amp = Math.min(R(30, 80), p.x0 - lo - 6, hi - (p.x0 + w) - 6, 200 - Math.abs(nx - px)); if (p.amp < 20) p.type = 'n'; }
+    // coins: arc over the platform, a trail up from a spring, or a midpoint coin on the jump path
+    if (p.type === 'spring') { for (let k = 1; k <= 4; k++) addCoin(nx, ny - 40 - k * 55); }
+    else if (p.type !== 'move' && rnd() < .32) { addCoin(nx - 18, ny - 28); addCoin(nx, ny - 40); addCoin(nx + 18, ny - 28); }
+    else if (count > 0 && rnd() < .3) addCoin((nx + px) / 2, (ny + py) / 2 - 30);
     if (rnd() < .22 && count > 0) {
       const w2 = R(48, 80), side = nx < (lo + hi) / 2 ? 1 : -1, x2 = clamp(nx + side * R(110, 170), lo + w2 / 2 + 6, hi - w2 / 2 - 6);
-      if (Math.abs(x2 - nx) > (w + w2) / 2 + 20) addPlat(x2 - w2 / 2, ny - R(-20, 30), w2, rnd() < .5 ? 'n' : pickType(B), bi);
+      if (Math.abs(x2 - nx) > (w + w2) / 2 + 20) {
+        const y2 = ny - R(-20, 30), q = addPlat(x2 - w2 / 2, y2, w2, rnd() < .5 ? 'n' : pickType(B), bi);
+        if (rnd() < .6) addCoin(x2, y2 - 30, rnd() < .25 ? 5 : 1); // side platforms pay out
+        if (q.type === 'move') q.amp = 0, q.type = 'n';
+      }
     }
     px = nx; py = ny; lastType = p.type; count++;
   }
@@ -598,6 +622,19 @@ function step(dt){
     break;
   }
 
+  // coins
+  coinStreakT -= dt; if (coinStreakT <= 0) coinStreak = 0;
+  const pcx = P.x + PW / 2, pcy = P.y + PH / 2;
+  for (let i = coins.length - 1; i >= 0; i--) {
+    const c = coins[i], rr = c.v > 1 ? 22 : 19;
+    if (Math.abs(c.x - pcx) < rr && Math.abs(c.y - pcy) < rr + 4) {
+      coins.splice(i, 1); runCoins += c.v; coinStreak++; coinStreakT = .7;
+      if (c.v > 1) { SFX.gem(); popText('+' + c.v, c.x, c.y - 8); buzz(12); } else SFX.coin(coinStreak);
+      burst(c.x, c.y, c.v > 1 ? 16 : 7, c.v > 1 ? BIOMES[curB].accent : '#ffd23f', c.v > 1 ? 160 : 90, 20, 200, 2.5);
+      const hw = $('hcWrap'); hw.classList.remove('bump'); void hw.offsetWidth; hw.classList.add('bump');
+    }
+  }
+
   const m = -(P.y + PH) / PXM;
   if (m > maxH) maxH = m;
 }
@@ -637,6 +674,7 @@ function update(dt){
   if (walls.length > 40) walls = walls.filter(w => w.y < cut || w.kind === 'ground');
   plats = plats.filter(p => p.y < cut);
   spikes = spikes.filter(s => s.y < cut);
+  coins = coins.filter(c => c.y < cut);
 
   // particles
   for (const p of parts) { p.life -= dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
@@ -666,6 +704,7 @@ function update(dt){
     if (!bestCelebrated && runBest >= 20 && maxH > runBest) { bestCelebrated = true; banner('Past ' + Math.floor(runBest) + ' m', 'New best'); SFX.best(); confetti(); }
     hudM.textContent = Math.floor(maxH);
     hudB.textContent = Math.floor(Math.max(S.best, maxH));
+    hudC.textContent = runCoins;
   }
   const camM = -(camY + viewH * .5) / PXM;
   curB = biomeIdx(Math.max(0, camM));
@@ -673,7 +712,7 @@ function update(dt){
 
 function confetti(){ if (S.reduce) return; const cols = ['#ffd23f', '#ff4d6d', '#5ff2d0', '#ffffff', '#9f7bff']; for (let i = 0; i < 60; i++) parts.push({ x: Math.random() * W, y: camY - 10, vx: R(-40, 40), vy: R(40, 160), life: R(1.2, 2.2), max: 2.2, size: R(2, 4), col: cols[i % 5], g: 120, conf: 1 }); }
 
-const hudM = $('hm'), hudB = $('hb');
+const hudM = $('hm'), hudB = $('hb'), hudC = $('hc');
 function banner(sm, big){ const b = $('banner'); $('banSm').textContent = sm; $('banBig').textContent = big; b.classList.remove('go'); void b.offsetWidth; b.classList.add('go'); }
 
 /* ---------- rendering ---------- */
@@ -825,6 +864,27 @@ function drawPlats(){
   }
 }
 
+function drawCoins(){
+  const top = camY - 20, bot = camY + viewH + 20;
+  for (const c of coins) {
+    if (c.y < top || c.y > bot) continue;
+    const bob = Math.sin(time * 3 + c.ph) * 2, y = c.y + bob;
+    if (c.v > 1) {
+      const acc = BIOMES[curB].accent, s = 9 + Math.sin(time * 6 + c.ph) * .8;
+      ctx.fillStyle = rgba(acc, .25); ctx.beginPath(); ctx.arc(c.x, y, 15, 0, 7); ctx.fill();
+      ctx.fillStyle = acc; ctx.beginPath(); ctx.moveTo(c.x, y - s); ctx.lineTo(c.x + s * .75, y); ctx.lineTo(c.x, y + s); ctx.lineTo(c.x - s * .75, y); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.beginPath(); ctx.moveTo(c.x, y - s); ctx.lineTo(c.x + s * .35, y - 1); ctx.lineTo(c.x, y); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#07060d'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(c.x, y - s); ctx.lineTo(c.x + s * .75, y); ctx.lineTo(c.x, y + s); ctx.lineTo(c.x - s * .75, y); ctx.closePath(); ctx.stroke();
+    } else {
+      const w = Math.max(1.2, Math.abs(Math.cos(time * 4 + c.ph)) * 6.5);
+      ctx.fillStyle = '#07060d'; ctx.beginPath(); ctx.ellipse(c.x, y, w + 1.5, 8, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#c98a00'; ctx.beginPath(); ctx.ellipse(c.x, y, w, 6.5, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.ellipse(c.x - w * .15, y - .5, w * .72, 5.2, 0, 0, 7); ctx.fill();
+      if (w > 3) { ctx.fillStyle = '#fff6c2'; ctx.fillRect(c.x - w * .4, y - 3, 1.6, 4); }
+    }
+  }
+}
+
 function drawPlayer(){
   for (const g of ghosts) { ctx.fillStyle = 'rgba(255,255,255,' + (g.life * 1.4) + ')'; rrect(g.x + 2, g.y + 4, PW - 4, PH - 6, 7); ctx.fill(); }
   // scarf
@@ -899,7 +959,7 @@ function render(){
   for (let m = mBot; m <= mTop; m += 50) { const y = -m * PXM; ctx.fillStyle = 'rgba(255,255,255,.18)'; for (let x = 0; x < W; x += 12) ctx.fillRect(x, y, 6, 1); ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillText(m + ' m', W / 2 - 12, y - 2); }
   if (runBest > 5) { const y = -runBest * PXM; if (y > camY - 10 && y < camY + viewH + 10) { ctx.fillStyle = '#ffd23f'; for (let x = 0; x < W; x += 10) ctx.fillRect(x, y - 1, 6, 2); ctx.fillText('BEST ' + Math.floor(runBest), 6, y - 3); } }
 
-  drawWalls(); drawPlats(); drawPlayer();
+  drawWalls(); drawPlats(); drawCoins(); drawPlayer();
   for (const p of parts) { ctx.globalAlpha = clamp(p.life / p.max * 1.6, 0, 1); ctx.fillStyle = p.col; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); }
   ctx.globalAlpha = 1;
   ctx.textAlign = 'center'; ctx.font = '400 16px Bungee,Impact,sans-serif';
@@ -923,18 +983,19 @@ function show(name){ for (const k in scr) scr[k].hidden = k !== name; $('hud').c
 function start(){
   audio(); SFX.click();
   reset(); state = 'play'; show(null); ptrs.clear();
-  hudM.textContent = '0'; hudB.textContent = Math.floor(S.best);
+  hudM.textContent = '0'; hudB.textContent = Math.floor(S.best); hudC.textContent = '0';
   banner('Downtown', 'Climb!');
 }
 function die(){
   if (P.dead) return;
   P.dead = true; P.vy = -300; state = 'dying'; SFX.die(); buzz([40, 40, 80]); if (!S.reduce) shake = 12;
   const h = Math.floor(maxH), isBest = h > Math.floor(S.best);
-  S.runs++; if (isBest) S.best = h; save();
+  S.runs++; if (isBest) S.best = h; S.coins = (S.coins || 0) + runCoins; save();
   setTimeout(() => {
     state = 'over'; overAt = performance.now();
     $('oH').textContent = h; $('oBest').textContent = Math.floor(S.best);
     $('oNew').hidden = !(isBest && h > 0);
+    $('oCoins').textContent = runCoins; $('oTotal').textContent = S.coins;
     $('oBiome').textContent = 'Fell in ' + BIOMES[biomeIdx(maxH)].name;
     const again = $('againBtn'); again.disabled = true; setTimeout(() => again.disabled = false, 600);
     show('over');
@@ -942,7 +1003,7 @@ function die(){
 }
 function pause(){ if (state !== 'play') return; state = 'pause'; show('pause'); syncToggles(); }
 function resume(){ if (state !== 'pause') return; state = 'play'; show(null); ptrs.clear(); keys.l = keys.r = 0; last = performance.now(); }
-function toTitle(){ reset(); state = 'title'; show('title'); $('tBest').textContent = Math.floor(S.best); syncToggles(); }
+function toTitle(){ reset(); state = 'title'; show('title'); $('tBest').textContent = Math.floor(S.best); $('tCoins').textContent = S.coins || 0; syncToggles(); }
 
 function syncToggles(){ for (const id of ['tSound', 'pSound']) $(id).setAttribute('aria-pressed', S.sound); for (const id of ['tMotion', 'pMotion']) $(id).setAttribute('aria-pressed', S.reduce); }
 const toggleSound = () => { S.sound = !S.sound; save(); syncToggles(); SFX.click(); };
@@ -1002,7 +1063,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 addEventListener('online', checkUpdate);
 
 $('ver').textContent = 'BUILD ' + VERSION.slice(4, 8) + '.' + VERSION.slice(8, 12);
-window.__wk = { get P(){ return P; }, get walls(){ return walls; }, get plats(){ return plats; }, get spikes(){ return spikes; }, get state(){ return state; },
+window.__wk = { get P(){ return P; }, get walls(){ return walls; }, get plats(){ return plats; }, get spikes(){ return spikes; }, get coins(){ return coins; }, get runCoins(){ return runCoins; }, get state(){ return state; },
   get maxH(){ return maxH; }, get camY(){ return camY; }, get viewH(){ return viewH; }, start, press, release, reset, BIOMES,
   warp(m){ P.y = -m * PXM - 200; P.vy = 0; camY = P.y - viewH * .5; maxH = m; ensureGen(); },
   setHeld(v){ ptrs.clear(); if (v) ptrs.set(-1, v); } };
