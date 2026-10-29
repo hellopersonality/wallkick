@@ -113,7 +113,7 @@
       <div class="how">
         <div><b>&#9664; Left</b>left half jumps left</div>
         <div><b>Right &#9654;</b>right half jumps right</div>
-        <div class="wide"><b>Hold, then let go</b>Tap for a hop. Hold longer for a bigger jump. On a wall, either side kicks off. Hold a side in the air to steer.</div>
+        <div class="wide"><b>Hold, then let go</b>Tap for a hop. Hold longer for a bigger jump. Your own side jumps straight up. On a wall, either side kicks off. Hold a side in the air to steer.</div>
       </div>
       <div class="stat">Best <b id="tBest">0</b> m <span class="dot"></span> <b id="tCoins">0</b></div>
     </div>
@@ -157,7 +157,7 @@
 (() => {
 'use strict';
 // Stamped by `node bump-version.js` (which also writes version.json). Do not edit by hand.
-const VERSION = '20261029032428';
+const VERSION = '20261029032752';
 
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -614,7 +614,9 @@ function step(dt){
   if (P.buf > 0 && P.stun <= 0) {
     if (P.grounded || P.coyG > 0) {
       const c = P.bufC;
-      P.vy = -lerp(JUMP_MIN, JUMP_MAX, c); P.vx = P.bufSide * lerp(GROUND_VX_MIN, GROUND_VX_MAX, c); P.grounded = false; P.ground = null; P.buf = 0; P.coyG = 0; P.sq = -.2 - c * .25;
+      // tapping the half of the screen you're already on jumps straight up (for lining up a jump across)
+      const dir = P.bufSide && Math.sign(P.x + PW / 2 - W / 2) === P.bufSide ? 0 : P.bufSide;
+      P.vy = -lerp(JUMP_MIN, JUMP_MAX, c); P.vx = dir * lerp(GROUND_VX_MIN, GROUND_VX_MAX, c); P.grounded = false; P.ground = null; P.buf = 0; P.coyG = 0; P.sq = -.2 - c * .25;
       combo = 0; SFX.jump(); burst(P.x + PW / 2, P.y + PH, 8, 'hi', 90, 20, 300, 2.5);
     } else if (P.wall || P.coyW > 0) {
       const s = P.wall || P.lastWall;
